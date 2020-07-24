@@ -1,0 +1,13 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "{1E920F30-432D-816E-D980-1C9217760D09}",
+	"Category": "",
+	"Description": "",
+	"Modules": [
+		{
+			"Name": "CustomUMeshComponent",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}
