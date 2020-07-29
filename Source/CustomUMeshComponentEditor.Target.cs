@@ -9,6 +9,6 @@ public class CustomUMeshComponentEditorTarget : TargetRules
 	{
 		Type = TargetType.Editor;
 		DefaultBuildSettings = BuildSettingsVersion.V2;
-		ExtraModuleNames.AddRange( new string[] { "CustomUMeshComponent" } );
+		ExtraModuleNames.AddRange( new string[] { "CustomUMeshComponent", "DeformMesh" } );
 	}
 }

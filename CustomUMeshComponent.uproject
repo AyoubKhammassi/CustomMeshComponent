@@ -8,6 +8,11 @@
 			"Name": "CustomUMeshComponent",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "DeformMesh",
+			"Type": "Runtime",
+			"LoadingPhase": "PostConfigInit"
 		}
 	]
 }
