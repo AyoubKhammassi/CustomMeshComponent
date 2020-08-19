@@ -60,7 +60,6 @@ class DEFORMMESH_API UDeformMeshComponent : public UMeshComponent
 {
 	GENERATED_BODY()
 public:
-
 	
 	void CreateMeshSection(int32 SectionIndex, UStaticMesh* Mesh, const FMatrix& DeformTransform);
 
@@ -135,7 +134,6 @@ private:
 	/** Local space bounds of mesh */
 	UPROPERTY()
 		FBoxSphereBounds LocalBounds;
-
 
 	friend class FDeformMeshSceneProxy;
 };
