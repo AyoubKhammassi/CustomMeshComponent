@@ -63,7 +63,9 @@ public:
 	
 	void CreateMeshSection(int32 SectionIndex, UStaticMesh* Mesh, const FMatrix& DeformTransform);
 
-	void UpdateMeshSection(int32 SectionIndex, const FMatrix& DeformTransform);
+	void UpdateMeshSectionTransform(int32 SectionIndex, const FMatrix& DeformTransform);
+
+	void FinishTransformsUpdate();
 
 	/** Clear a section of the DeformMesh. Other sections do not change index. */
 	void ClearMeshSection(int32 SectionIndex);

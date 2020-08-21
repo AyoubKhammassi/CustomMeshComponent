@@ -276,6 +276,8 @@ public:
 			}
 		}
 
+		//Create the structured buffer only if we have at least one section
+		if(NumSections > 0)
 		{
 			///////////////////////////////////////////////////////////////
 			//// CREATING THE STRUCTURED BUFFER FOR THE DEFORM TRANSFORMS OF ALL THE SECTIONS
@@ -327,6 +329,7 @@ public:
 			void* StructuredBufferData = RHILockStructuredBuffer(DeformTransformsSB, 0, DeformTransforms.Num() * sizeof(FMatrix), RLM_WriteOnly);
 			FMemory::Memcpy(StructuredBufferData, DeformTransforms.GetData(), DeformTransforms.Num() * sizeof(FMatrix));
 			RHIUnlockStructuredBuffer(DeformTransformsSB);
+			bDeformTransformsDirty = false;
 		}
 	}
 
@@ -415,7 +418,6 @@ public:
 				}
 			}
 		}
-
 	}
 
 	virtual FPrimitiveViewRelevance GetViewRelevance(const FSceneView* View) const
@@ -449,7 +451,7 @@ public:
 	}
 
 	//Get the SRV of the transforms structured buffer
-	inline FShaderResourceViewRHIRef GetDeformTransformsSRV() { return DeformTransformsSRV; }
+	inline FShaderResourceViewRHIRef& GetDeformTransformsSRV() { return DeformTransformsSRV; }
 
 private:
 	/** Array of sections */
@@ -523,9 +525,6 @@ public:
 		const FDeformMeshVertexFactory* DeformMeshVertexFactory = ((FDeformMeshVertexFactory*)VertexFactory);
 
 		ShaderBindings.Add(TransformIndex, DeformMeshVertexFactory->TransformIndex);
-
-		//Update the structured buffer before using its SRV
-		DeformMeshVertexFactory->SceneProxy->UpdateDeformTransformsSB_RenderThread(); //Todo: make sure this is in the render thread
 		ShaderBindings.Add(TransformsSRV, DeformMeshVertexFactory->SceneProxy->GetDeformTransformsSRV());
 	};
 private:
@@ -559,7 +558,7 @@ void UDeformMeshComponent::CreateMeshSection(int32 SectionIndex, UStaticMesh* Me
 	NewSection.Reset();
 
 	// Fill in the mesh section with the needed data
-	// i'm assuming that the StaticMesh has only one section and I'm inly using that
+	// I'm assuming that the StaticMesh has only one section and I'm inly using that
 	// But the StaticMeshComponent is also a MeshComponent and has multiple mesh sections
 	// If you're interested in all the Sections of the StaticMesh, you can apply the same logic for each section
 	NewSection.StaticMesh = Mesh;
@@ -582,7 +581,7 @@ void UDeformMeshComponent::CreateMeshSection(int32 SectionIndex, UStaticMesh* Me
 /// </summary>
 /// <param name="SectionIndex"> The index for the section that we want to update its DeformTransform </param>
 /// <param name="Transform"> The new Transform Matrix </param>
-void UDeformMeshComponent::UpdateMeshSection(int32 SectionIndex, const FMatrix& Transform)
+void UDeformMeshComponent::UpdateMeshSectionTransform(int32 SectionIndex, const FMatrix& Transform)
 {
 	if (SectionIndex < DeformMeshSections.Num())
 	{
@@ -611,6 +610,24 @@ void UDeformMeshComponent::ClearMeshSection(int32 SectionIndex)
 		DeformMeshSections[SectionIndex].Reset();
 		UpdateLocalBounds();
 		MarkRenderStateDirty();
+	}
+}
+
+/// <summary>
+/// This method is called after we finished updating all the section transforms that we want to update
+/// What will this do, is updating the structured buffer with the new transforms
+/// </summary>
+void UDeformMeshComponent::FinishTransformsUpdate()
+{
+	if (SceneProxy)
+	{
+		// Enqueue command to modify render thread info
+		FDeformMeshSceneProxy* DeformMeshSceneProxy = (FDeformMeshSceneProxy*)SceneProxy;
+		ENQUEUE_RENDER_COMMAND(FDeformMeshAllTransformsSBUpdate)(
+			[DeformMeshSceneProxy](FRHICommandListImmediate& RHICmdList)
+			{
+				DeformMeshSceneProxy->UpdateDeformTransformsSB_RenderThread();
+			});
 	}
 }
 
