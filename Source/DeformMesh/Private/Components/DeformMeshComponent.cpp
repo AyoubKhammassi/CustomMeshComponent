@@ -33,7 +33,7 @@ struct FDeformMeshVertexFactory;
 /*
  * We're inheriting from the FLocalvertexfactory because most of the logic is reusible
  * However there's some data and functions that we're interested in
- * You can inherit directly from FVertexFcatory and implement the logic that suits you, but you'll have to implement everything from scratch
+ * You can inherit directly from FVertexFactory and implement the logic that suits you, but you'll have to implement everything from scratch
 */
 ///////////////////////////////////////////////////////////////////////
 struct FDeformMeshVertexFactory : FLocalVertexFactory
@@ -92,15 +92,15 @@ public:
 		check(HasValidFeatureLevel());
 
 
-		//The element lists (Nothing but an array of FVertexElement)
-		FVertexDeclarationElementList Elements;
-		FVertexDeclarationElementList PosOnlyElements;
+		//The vertex declaration element lists (Nothing but an array of FVertexElement)
+		FVertexDeclarationElementList Elements; //Used for the Default vertex stream
+		FVertexDeclarationElementList PosOnlyElements; // Used for the PositionOnly vertex stream
 
 		if (Data.PositionComponent.VertexBuffer != NULL)
 		{
 			//We add the position stream component to both elemnt lists
 			Elements.Add(AccessStreamComponent(Data.PositionComponent, 0));
-			PosOnlyElements.Add(AccessStreamComponent(Data.PositionComponent, 0));
+			PosOnlyElements.Add(AccessStreamComponent(Data.PositionComponent, 0, EVertexInputStreamType::PositionOnly));
 		}
 
 		//Initialize the Position Only vertex declaration which will be used in the depth pass
@@ -162,7 +162,7 @@ public:
 	/** Material applied to this section */
 	UMaterialInterface* Material;
 	/** Index buffer for this section */
-	FRawStaticIndexBuffer* IndexBuffer;
+	FRawStaticIndexBuffer IndexBuffer;
 	/** Vertex factory for this section */
 	FDeformMeshVertexFactory VertexFactory;
 	/** Whether this section is currently visible */
@@ -250,9 +250,15 @@ public:
 				//Initialize the additional data (Transform Index and pointer to this scene proxy that holds reference to the structured buffer and its SRV
 				VertexFactory->SetTransformIndex(SectionIdx);
 				VertexFactory->SetSceneProxy(this);
-				//Set the Index Buffer of the mesh section and initialize the render resource
-				NewSection->IndexBuffer = &(LODResource.IndexBuffer);
-				BeginInitResource(NewSection->IndexBuffer);
+
+				//Copy the indices from the static mesh index buffer and use it to initialize the section proxy's index buffer
+				{
+					TArray<uint32> tmp_indices;
+					LODResource.IndexBuffer.GetCopy(tmp_indices);
+					NewSection->IndexBuffer.AppendIndices(tmp_indices.GetData(), tmp_indices.Num());
+					//Initialize the render resource
+					BeginInitResource(&NewSection->IndexBuffer);
+				}
 
 				//Fill the array of transforms with the transform matrix from each section
 				DeformTransforms[SectionIdx] = SrcSection.DeformTransform;
@@ -307,7 +313,7 @@ public:
 		{
 			if (Section != nullptr)
 			{
-				Section->IndexBuffer->ReleaseResource();
+				Section->IndexBuffer.ReleaseResource();
 				Section->VertexFactory.ReleaseResource();
 				delete Section;
 			}
@@ -389,7 +395,7 @@ public:
 						// Draw the mesh.
 						FMeshBatch& Mesh = Collector.AllocateMesh();
 						FMeshBatchElement& BatchElement = Mesh.Elements[0];
-						BatchElement.IndexBuffer = Section->IndexBuffer;
+						BatchElement.IndexBuffer = &Section->IndexBuffer;
 						Mesh.bWireframe = bWireframe;
 						Mesh.VertexFactory = &Section->VertexFactory;
 						Mesh.MaterialRenderProxy = MaterialProxy;
@@ -406,7 +412,7 @@ public:
 
 
 						BatchElement.FirstIndex = 0;
-						BatchElement.NumPrimitives = Section->IndexBuffer->GetNumIndices() / 3;
+						BatchElement.NumPrimitives = Section->IndexBuffer.GetNumIndices() / 3;
 						BatchElement.MinVertexIndex = 0;
 						BatchElement.MaxVertexIndex = Section->MaxVertexIndex;
 						Mesh.ReverseCulling = IsLocalToWorldDeterminantNegative();
@@ -539,13 +545,13 @@ IMPLEMENT_TYPE_LAYOUT(FDeformMeshVertexFactoryShaderParameters);
 
 IMPLEMENT_VERTEX_FACTORY_PARAMETER_TYPE(FDeformMeshVertexFactory, SF_Vertex, FDeformMeshVertexFactoryShaderParameters);
 
-IMPLEMENT_VERTEX_FACTORY_TYPE(FDeformMeshVertexFactory, "/Engine/Private/LocalVertexFactory.ush", true, true, true, true, true);
+IMPLEMENT_VERTEX_FACTORY_TYPE(FDeformMeshVertexFactory, "/CustomShaders/LocalVertexFactory.ush", true, true, true, true, true);
 
 ///////////////////////////////////////////////////////////////////////
 // The DeformMesh class methods
 ///////////////////////////////////////////////////////////////////////
 
-void UDeformMeshComponent::CreateMeshSection(int32 SectionIndex, UStaticMesh* Mesh, const FMatrix& Transform)
+void UDeformMeshComponent::CreateMeshSection(int32 SectionIndex, UStaticMesh* Mesh, const FTransform& Transform)
 {
 	// Ensure sections array is long enough
 	if (SectionIndex >= DeformMeshSections.Num())
@@ -562,11 +568,11 @@ void UDeformMeshComponent::CreateMeshSection(int32 SectionIndex, UStaticMesh* Me
 	// But the StaticMeshComponent is also a MeshComponent and has multiple mesh sections
 	// If you're interested in all the Sections of the StaticMesh, you can apply the same logic for each section
 	NewSection.StaticMesh = Mesh;
-	NewSection.DeformTransform = Transform;
+	NewSection.DeformTransform = Transform.ToMatrixWithScale().GetTransposed();
 
 	NewSection.StaticMesh->CalculateExtendedBounds();
 	NewSection.SectionLocalBox += NewSection.StaticMesh->GetBoundingBox();
-
+	NewSection.SectionLocalBox += NewSection.StaticMesh->GetBoundingBox().TransformBy(Transform);
 	//Add this sections material to the list of the component's materials, with the same index as the section
 	SetMaterial(SectionIndex, NewSection.StaticMesh->GetMaterial(0));
 	
@@ -581,21 +587,25 @@ void UDeformMeshComponent::CreateMeshSection(int32 SectionIndex, UStaticMesh* Me
 /// </summary>
 /// <param name="SectionIndex"> The index for the section that we want to update its DeformTransform </param>
 /// <param name="Transform"> The new Transform Matrix </param>
-void UDeformMeshComponent::UpdateMeshSectionTransform(int32 SectionIndex, const FMatrix& Transform)
+void UDeformMeshComponent::UpdateMeshSectionTransform(int32 SectionIndex, const FTransform& Transform)
 {
 	if (SectionIndex < DeformMeshSections.Num())
 	{
 		//Set game thread state
-		DeformMeshSections[SectionIndex].DeformTransform = Transform;
+		const FMatrix TransformMatrix = Transform.ToMatrixNoScale().GetTransposed();
+		DeformMeshSections[SectionIndex].DeformTransform = TransformMatrix;
+
+		DeformMeshSections[SectionIndex].SectionLocalBox += DeformMeshSections[SectionIndex].StaticMesh->GetBoundingBox().TransformBy(Transform);
+
 
 		if (SceneProxy)
 		{
 			// Enqueue command to modify render thread info
 			FDeformMeshSceneProxy* DeformMeshSceneProxy = (FDeformMeshSceneProxy*)SceneProxy;
 			ENQUEUE_RENDER_COMMAND(FDeformMeshTransformsUpdate)(
-				[DeformMeshSceneProxy, SectionIndex, Transform](FRHICommandListImmediate& RHICmdList)
+				[DeformMeshSceneProxy, SectionIndex, TransformMatrix](FRHICommandListImmediate& RHICmdList)
 				{
-					DeformMeshSceneProxy->UpdateDeformTransform_RenderThread(SectionIndex, Transform);
+					DeformMeshSceneProxy->UpdateDeformTransform_RenderThread(SectionIndex, TransformMatrix);
 				});
 		}
 		UpdateLocalBounds();		 // Update overall bounds

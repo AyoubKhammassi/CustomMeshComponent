@@ -61,9 +61,9 @@ class DEFORMMESH_API UDeformMeshComponent : public UMeshComponent
 	GENERATED_BODY()
 public:
 	
-	void CreateMeshSection(int32 SectionIndex, UStaticMesh* Mesh, const FMatrix& DeformTransform);
+	void CreateMeshSection(int32 SectionIndex, UStaticMesh* Mesh, const FTransform& DeformTransform);
 
-	void UpdateMeshSectionTransform(int32 SectionIndex, const FMatrix& DeformTransform);
+	void UpdateMeshSectionTransform(int32 SectionIndex, const FTransform& DeformTransform);
 
 	void FinishTransformsUpdate();
 

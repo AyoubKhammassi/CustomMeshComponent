@@ -32,6 +32,10 @@ public:
 		UStaticMesh* TestMesh;
 
 	UPROPERTY(EditAnywhere)
-		USceneComponent* TestTransform;
+		USceneComponent* TestTransform1;
+
+
+	UPROPERTY(EditAnywhere)
+		USceneComponent* TestTransform2;
 
 };

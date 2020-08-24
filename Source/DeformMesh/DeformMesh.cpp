@@ -10,6 +10,9 @@ IMPLEMENT_GAME_MODULE( FDeformMeshModule, DeformMesh);
 
 void FDeformMeshModule::StartupModule()
 {
+	// Maps virtual shader source directory to actual shaders directory on disk.
+	FString ShaderDirectory = FPaths::Combine(FPaths::ProjectDir(), TEXT("Shaders/Private"));
+	AddShaderSourceDirectoryMapping("/CustomShaders", ShaderDirectory);
 }
 
 void FDeformMeshModule::ShutdownModule()
