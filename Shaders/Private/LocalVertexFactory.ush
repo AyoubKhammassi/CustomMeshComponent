@@ -664,6 +664,23 @@ FMaterialVertexParameters GetMaterialVertexParameters(FVertexFactoryInput Input,
 	}
 #endif	// USE_SPLINEDEFORM
 
+#if DEFORM_MESH
+//Deform Transform Rotate and Scale only
+float4 TransformDeformNotTranslated(float3 LocalPosition)
+{
+	float4x4 DeformTransform = DMTransforms[DMTransformIndex];
+	float3 RotatedPosition = DeformTransform[0].xyz * LocalPosition.xxx + DeformTransform[1].xyz * LocalPosition.yyy + DeformTransform[2].xyz * LocalPosition.zzz;
+	return float4(RotatedPosition + ResolvedView.PreViewTranslation.xyz,1);
+}
+
+//Deform Transform
+float4 TransformDeformToTranslatedWorld(float3 LocalPosition)
+{
+	float4x4 DeformTransform = DMTransforms[DMTransformIndex];
+	float3 RotatedPosition = DeformTransform[0].xyz * LocalPosition.xxx + DeformTransform[1].xyz * LocalPosition.yyy + DeformTransform[2].xyz * LocalPosition.zzz;
+	return float4(RotatedPosition + (DeformTransform[3].xyz + ResolvedView.PreViewTranslation.xyz),1);
+}
+#endif
 #if USE_INSTANCING
 float4 CalcWorldPosition(float4 Position, float4x4 InstanceTransform, uint PrimitiveId)
 #else
@@ -673,15 +690,15 @@ float4 CalcWorldPosition(float4 Position, uint PrimitiveId)
 #if USE_INSTANCING
 	return TransformLocalToTranslatedWorld(mul(Position, InstanceTransform).xyz, PrimitiveId);
 #elif DEFORM_MESH
-	float3 ltwPos = GetPrimitiveData(PrimitiveId).LocalToWorld[3].xyz;
+	//float3 ltwPos =  TransformLocalToTranslatedWorld(float3(0,0,0), PrimitiveId);
 	float4x4 DeformTr = DMTransforms[DMTransformIndex];
-	float3 dfmPos = DeformTr[3].xyz;
+	float3 dfmPos = TransformDeformToTranslatedWorld(float3(0,0,0));
 	
 	float4 originalPos = TransformLocalToTranslatedWorld(Position, PrimitiveId);
-	float3 RotatedPosition = DeformTr[0].xyz * Position.xxx + DeformTr[1].xyz * Position.yyy + DeformTr[2].xyz * Position.zzz;
-	
-	float4 deformedPos = TransformLocalToTranslatedWorld(RotatedPosition, PrimitiveId);
-	float d = max(distance(ltwPos, dfmPos),10.0) / 10.0;
+
+	float4 deformedPos = TransformDeformNotTranslated(Position);//float4(RotatedPosition, 1.0);// TransformLocalToTranslatedWorld(mul(Position, DeformTr).xyz, PrimitiveId);
+	float d = min(distance(originalPos, dfmPos),100.0) / 100.0;
+	d = pow(d, 2);
 	return lerp(deformedPos, originalPos, float4(d,d,d,d));
 #elif USE_SPLINEDEFORM
 /*

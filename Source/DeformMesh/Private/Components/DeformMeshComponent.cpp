@@ -409,7 +409,7 @@ public:
 						FDynamicPrimitiveUniformBuffer& DynamicPrimitiveUniformBuffer = Collector.AllocateOneFrameResource<FDynamicPrimitiveUniformBuffer>();
 						DynamicPrimitiveUniformBuffer.Set(GetLocalToWorld(), PreviousLocalToWorld, GetBounds(), GetLocalBounds(), true, bHasPrecomputedVolumetricLightmap, DrawsVelocity(), bOutputVelocity);
 						BatchElement.PrimitiveUniformBufferResource = &DynamicPrimitiveUniformBuffer.UniformBuffer;
-
+						BatchElement.PrimitiveIdMode = PrimID_DynamicPrimitiveShaderData;
 
 						BatchElement.FirstIndex = 0;
 						BatchElement.NumPrimitives = Section->IndexBuffer.GetNumIndices() / 3;
@@ -530,7 +530,8 @@ public:
 		}
 		const FDeformMeshVertexFactory* DeformMeshVertexFactory = ((FDeformMeshVertexFactory*)VertexFactory);
 
-		ShaderBindings.Add(TransformIndex, DeformMeshVertexFactory->TransformIndex);
+		const uint32 Index = DeformMeshVertexFactory->TransformIndex;
+		ShaderBindings.Add(TransformIndex, Index);
 		ShaderBindings.Add(TransformsSRV, DeformMeshVertexFactory->SceneProxy->GetDeformTransformsSRV());
 	};
 private:
@@ -592,7 +593,7 @@ void UDeformMeshComponent::UpdateMeshSectionTransform(int32 SectionIndex, const 
 	if (SectionIndex < DeformMeshSections.Num())
 	{
 		//Set game thread state
-		const FMatrix TransformMatrix = Transform.ToMatrixNoScale().GetTransposed();
+		const FMatrix TransformMatrix = Transform.ToMatrixWithScale().GetTransposed();
 		DeformMeshSections[SectionIndex].DeformTransform = TransformMatrix;
 
 		DeformMeshSections[SectionIndex].SectionLocalBox += DeformMeshSections[SectionIndex].StaticMesh->GetBoundingBox().TransformBy(Transform);

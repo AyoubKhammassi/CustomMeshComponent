@@ -38,4 +38,7 @@ public:
 	UPROPERTY(EditAnywhere)
 		USceneComponent* TestTransform2;
 
+	UPROPERTY(EditAnywhere)
+		AActor* controller;
+
 };
