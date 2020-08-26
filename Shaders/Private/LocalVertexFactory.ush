@@ -665,7 +665,7 @@ FMaterialVertexParameters GetMaterialVertexParameters(FVertexFactoryInput Input,
 #endif	// USE_SPLINEDEFORM
 
 #if DEFORM_MESH
-//Deform Transform Rotate and Scale only
+//Transform from deform to world space without translation
 float4 TransformDeformNotTranslated(float3 LocalPosition)
 {
 	float4x4 DeformTransform = DMTransforms[DMTransformIndex];
@@ -673,7 +673,7 @@ float4 TransformDeformNotTranslated(float3 LocalPosition)
 	return float4(RotatedPosition + ResolvedView.PreViewTranslation.xyz,1);
 }
 
-//Deform Transform
+//Transform from deform to world space
 float4 TransformDeformToTranslatedWorld(float3 LocalPosition)
 {
 	float4x4 DeformTransform = DMTransforms[DMTransformIndex];
@@ -690,13 +690,18 @@ float4 CalcWorldPosition(float4 Position, uint PrimitiveId)
 #if USE_INSTANCING
 	return TransformLocalToTranslatedWorld(mul(Position, InstanceTransform).xyz, PrimitiveId);
 #elif DEFORM_MESH
-	//float3 ltwPos =  TransformLocalToTranslatedWorld(float3(0,0,0), PrimitiveId);
+	//The deform transform of this mesh
 	float4x4 DeformTr = DMTransforms[DMTransformIndex];
+	//The origin of the deform transform
 	float3 dfmPos = TransformDeformToTranslatedWorld(float3(0,0,0));
 	
+	//The original world position without deformation
 	float4 originalPos = TransformLocalToTranslatedWorld(Position, PrimitiveId);
 
-	float4 deformedPos = TransformDeformNotTranslated(Position);//float4(RotatedPosition, 1.0);// TransformLocalToTranslatedWorld(mul(Position, DeformTr).xyz, PrimitiveId);
+	// The fully deformed position
+	float4 deformedPos = TransformDeformNotTranslated(Position);
+	
+	//Distance between the vertex Position and deform transform origin
 	float d = min(distance(originalPos, dfmPos),100.0) / 100.0;
 	d = pow(d, 2);
 	return lerp(deformedPos, originalPos, float4(d,d,d,d));
