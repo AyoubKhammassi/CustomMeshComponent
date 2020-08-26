@@ -8,12 +8,18 @@
 #include "Components/SceneComponent.h"
 #include "DeformMeshActor.generated.h"
 
+
 UCLASS()
 class CUSTOMUMESHCOMPONENT_API ADeformMeshActor : public AActor
 {
 	GENERATED_BODY()
+
+/*
+ * This is a simple actor that has a DeformMeshComponent
+ * It uses the DeformMeshComponent API to create mesh sections and update their deform transforms
+*/
+public:
 	
-public:	
 	// Sets default values for this actor's properties
 	ADeformMeshActor();
 
@@ -28,17 +34,12 @@ public:
 	UPROPERTY(EditAnywhere)
 		UDeformMeshComponent* DeformMeshComp;
 
+	//We're creating a mesh section from this static mesh
 	UPROPERTY(EditAnywhere)
 		UStaticMesh* TestMesh;
 
+	// We're using the transform of this actor as a deform transform
 	UPROPERTY(EditAnywhere)
-		USceneComponent* TestTransform1;
-
-
-	UPROPERTY(EditAnywhere)
-		USceneComponent* TestTransform2;
-
-	UPROPERTY(EditAnywhere)
-		AActor* controller;
+		AActor* Controller;
 
 };

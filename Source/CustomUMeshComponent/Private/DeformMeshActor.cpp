@@ -11,9 +11,7 @@ ADeformMeshActor::ADeformMeshActor()
  	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
 	DeformMeshComp = CreateDefaultSubobject<UDeformMeshComponent>(TEXT("Deform Mesh Component"));
-	TestTransform1 = CreateDefaultSubobject<USceneComponent>(TEXT("Transform Controller 1"));
-	TestTransform2 = CreateDefaultSubobject<USceneComponent>(TEXT("Transform Controller 2"));
-	controller = CreateDefaultSubobject<AActor>(TEXT("Controller"));
+	Controller = CreateDefaultSubobject<AActor>(TEXT("Controller"));
 
 }
 
@@ -21,11 +19,11 @@ ADeformMeshActor::ADeformMeshActor()
 void ADeformMeshActor::BeginPlay()
 {
 	Super::BeginPlay();
-	const auto Transform1 = TestTransform1->GetComponentTransform();
-	const auto Transform2 = TestTransform2->GetComponentTransform();
 
-	DeformMeshComp->CreateMeshSection(0, TestMesh, Transform1);
-	//DeformMeshComp->CreateMeshSection(1, TestMesh, Transform2);
+	const auto Transform = Controller->GetTransform();
+	//We create a new deform mesh section using the static mesh and the transform of the actor
+	DeformMeshComp->CreateMeshSection(0, TestMesh, Transform);
+
 	
 }
 
@@ -33,10 +31,11 @@ void ADeformMeshActor::BeginPlay()
 void ADeformMeshActor::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
-	const auto Transform1 = controller->GetTransform();// TestTransform1->GetComponentTransform();
-	const auto Transform2 = TestTransform2->GetComponentTransform();
-	DeformMeshComp->UpdateMeshSectionTransform(0, Transform1);
-	//DeformMeshComp->UpdateMeshSectionTransform(1, Transform2);
+
+	const auto Transform = Controller->GetTransform();// TestTransform1->GetComponentTransform();
+	//We update the deform transform of the previously created deform mesh section
+	DeformMeshComp->UpdateMeshSectionTransform(0, Transform);
+	//We finalize all the deform transforms updates, in our case, just one
 	DeformMeshComp->FinishTransformsUpdate();
 
 }

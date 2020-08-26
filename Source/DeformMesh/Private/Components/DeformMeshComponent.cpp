@@ -29,10 +29,10 @@ struct FDeformMeshVertexFactory;
 
 
 ///////////////////////////////////////////////////////////////////////
-// The DeformMesh Vertex factory
+// The Deform Mesh Component Vertex Factory
 /*
  * We're inheriting from the FLocalvertexfactory because most of the logic is reusible
- * However there's some data and functions that we're interested in
+ * However there's some data and functions that we're interested in changing
  * You can inherit directly from FVertexFactory and implement the logic that suits you, but you'll have to implement everything from scratch
 */
 ///////////////////////////////////////////////////////////////////////
@@ -50,24 +50,26 @@ public:
 	}
 
 	/* Should we cache the material's shadertype on this platform with this vertex factory? */
-	/* Given these parameters, we can decide in which permutations should this vertex factory be included*/
+	/* Given these parameters, we can decide which permutations should be compiled for this vertex factory*/
 	/* For example, we're only intersted in unlit materials, so we only return true when 
 	1 Material Domain is Surface
 	2 Shading Model is Unlit
-	* We also add the permutation for the default material, because if that's not found for this vertex factory, the engine would crash
-	* That's because the default material is the fallback for all other materials, so it needs to be included for all vertex factories
+	* We also add the permutation for the default material, because if that's not found, the engine would crash
+	* That's because the default material is the fallback for all other materials, so it needs to be compiled for all vertex factories
 	*/
 	static bool ShouldCompilePermutation(const FVertexFactoryShaderPermutationParameters& Parameters)
 	{
-		if ((Parameters.MaterialParameters.MaterialDomain == MD_Surface && Parameters.MaterialParameters.ShadingModels == MSM_Unlit) || Parameters.MaterialParameters.bIsDefaultMaterial)
+		if ((Parameters.MaterialParameters.MaterialDomain == MD_Surface &&
+			Parameters.MaterialParameters.ShadingModels == MSM_Unlit) ||
+			Parameters.MaterialParameters.bIsDefaultMaterial)
 		{
 			return true;
 		}
 		return false;
 	}
 
-	/* Modify compile environment to enable DeformMesh  deformation */
-	/* We do this by using preprocessor directives, so when compilation happens, only the code that we're interested in gets in the compiled shader*/
+	/* Modify compilation environment so we can control which parts of the shader file are taken in consideration by the shader compiler */
+	/* This is the equivaalent to manually setting preprocessor directives, so when compilation happens, only the code that we're interested in gets in the compiled shader*/
 	/* Check LocalVertexFactory.ush */
 	static void ModifyCompilationEnvironment(const FVertexFactoryShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
 	{
@@ -83,8 +85,8 @@ public:
 
 	/* This is the main method that we're interested in*/
 	/* Here we can initialize our RHI resources, so we can decide what would be in the final streams and the vertex declaration*/
-	/* In the LocalVertexFactory, 3 vertex declarations are initialized; PositionOnly, PositionAndNormalOnly, and the default, which is the one that will be used in the final rendering*/
-	/* PositionOnly is mandatory if you're enabling depth passes, however we can get rid of the PositionAndNormal since we're not interested in shading and we're only supporting unlit materils*/
+	/* In the LocalVertexFactory, 3 vertex declarations are initialized; PositionOnly, PositionAndNormalOnly, and the default, which is the one that will be used in the main rendering*/
+	/* PositionOnly is mandatory if you're enabling depth passes, however we can get rid of the PositionAndNormal since we're not interested in shading and we're only supporting unlit materials*/
 	virtual void InitRHI() override 
 	{
 
@@ -106,7 +108,7 @@ public:
 		//Initialize the Position Only vertex declaration which will be used in the depth pass
 		InitDeclaration(PosOnlyElements, EVertexInputStreamType::PositionOnly);
 
-		//We add all the available texcoords to the default element list, that's all what we'll need for unlit shading 
+		//We add all the available texcoords to the default element list, that's all what we'll need for unlit shading
 		if (Data.TextureCoordinates.Num())
 		{
 			const int32 BaseTexCoordAttribute = 4;
@@ -143,7 +145,7 @@ public:
 private:
 	//We need to pass this as a shader parameter, so we store it in the vertex factory and we use in the vertex factory shader parameters
 	uint16 TransformIndex;
-	//All the mesh sections proxies keep a pointer to the scene proxy of the component so they can acess the unified SRV
+	//All the mesh sections proxies keep a pointer to the scene proxy of the component so they can access the unified SRV
 	FDeformMeshSceneProxy* SceneProxy;
 
 	friend class FDeformMeshVertexFactoryShaderParameters;
@@ -153,19 +155,26 @@ private:
 
 
 
-
-/** Class representing a single section of the puzzle mesh */
+///////////////////////////////////////////////////////////////////////
+// The Deform Mesh Component Mesh Section Proxy
+/*
+ * Stores the render thread data that it is needed to render one mesh section
+ 1 Vertex Data: Each mesh section creates an instance of the vertex factory(vertex streams and declarations), also each mesh section owns an index buffer
+ 2 Material : Contains a pointer to the material that will be used to render this section
+ 3 Other Data: Visibility, and the maximum vertex index.
+*/
+///////////////////////////////////////////////////////////////////////
 class FDeformMeshSectionProxy
 {
 public:
 	////////////////////////////////////////////////////////
-	/** Material applied to this section */
+	/* Material applied to this section */
 	UMaterialInterface* Material;
-	/** Index buffer for this section */
+	/* Index buffer for this section */
 	FRawStaticIndexBuffer IndexBuffer;
-	/** Vertex factory for this section */
+	/* Vertex factory instance for this section */
 	FDeformMeshVertexFactory VertexFactory;
-	/** Whether this section is currently visible */
+	/* Whether this section is currently visible */
 	bool bSectionVisible;
 	/* Max vertix index is an info that is needed when rendering the mesh, so we cache it here so we don't have to pointer chase it later*/
 	uint32 MaxVertexIndex;
@@ -181,7 +190,7 @@ public:
 
 ///////////////////////////////////////////////////////////////////////
 
-
+/* Helper function that initializes a render resource if it's not initialized, or updates it otherwise*/
 static inline void InitOrUpdateResource(FRenderResource* Resource)
 {
 	if (!Resource->IsInitialized())
@@ -194,8 +203,9 @@ static inline void InitOrUpdateResource(FRenderResource* Resource)
 	}
 }
 
-/* Helper function to initialize the vertex buffers of the vertex factory from the static mesh vertex buffers
-* We're using this so we can initialize only the data that we're interested in.
+/* 
+ * Helper function that initializes the vertex buffers of the vertex factory's Data member from the static mesh vertex buffers
+ * We're using this so we can initialize only the data that we're interested in.
 */
 static void InitVertexFactoryData(FDeformMeshVertexFactory* VertexFactory, FStaticMeshVertexBuffers* VertexBuffers)
 {
@@ -217,7 +227,15 @@ static void InitVertexFactoryData(FDeformMeshVertexFactory* VertexFactory, FStat
 		});
 }
 
-/** Puzzle mesh scene proxy */
+
+
+///////////////////////////////////////////////////////////////////////
+// The Deform Mesh Component Scene Proxy
+/*
+ * Encapsulates the render thread data of the Deform Mesh Component 
+ * Read more about scene proxies: https://docs.unrealengine.com/en-US/API/Runtime/Engine/FPrimitiveSceneProxy/index.html
+*/
+///////////////////////////////////////////////////////////////////////
 class FDeformMeshSceneProxy final : public FPrimitiveSceneProxy
 {
 public:
@@ -227,7 +245,7 @@ public:
 		return reinterpret_cast<size_t>(&UniquePointer);
 	}
 
-	/* On construction of the Scene proxy, we'll copy all the needed data from the game thread mesh sections to create the needed render thread mesh section proxies*/
+	/* On construction of the Scene proxy, we'll copy all the needed data from the game thread mesh sections to create the needed render thread mesh sections' proxies*/
 	/* We'll also create the structured buffer that will contain the deform transforms of all the sections*/
 	FDeformMeshSceneProxy(UDeformMeshComponent* Component)
 		: FPrimitiveSceneProxy(Component)
@@ -235,23 +253,31 @@ public:
 	{
 		// Copy each section
 		const uint16 NumSections = Component->DeformMeshSections.Num();
+		
+		//Initialize the array of trnasforms and the array of mesh sections proxies
 		DeformTransforms.AddZeroed(NumSections);
 		Sections.AddZeroed(NumSections);
+
 		for (uint16 SectionIdx = 0; SectionIdx < NumSections; SectionIdx++)
 		{
-			FDeformMeshSection& SrcSection = Component->DeformMeshSections[SectionIdx];
+			const FDeformMeshSection& SrcSection = Component->DeformMeshSections[SectionIdx];
 			{
+				//Create a new mesh section proxy
 				FDeformMeshSectionProxy* NewSection = new FDeformMeshSectionProxy(GetScene().GetFeatureLevel());
+
+				//Get the needed data from the static mesh of the mesh section
+				//We're assuming that there's only one LOD
 				auto& LODResource = SrcSection.StaticMesh->RenderData->LODResources[0];
 
 				FDeformMeshVertexFactory* VertexFactory= &NewSection->VertexFactory;
-				//Initialize the vertex factory with the vertex data from the static mesh
+				//Initialize the vertex factory with the vertex data from the static mesh using the helper function defined above
 				InitVertexFactoryData(VertexFactory, &(LODResource.VertexBuffers));
-				//Initialize the additional data (Transform Index and pointer to this scene proxy that holds reference to the structured buffer and its SRV
+
+				//Initialize the additional data using setters (Transform Index and pointer to this scene proxy that holds reference to the structured buffer and its SRV
 				VertexFactory->SetTransformIndex(SectionIdx);
 				VertexFactory->SetSceneProxy(this);
 
-				//Copy the indices from the static mesh index buffer and use it to initialize the section proxy's index buffer
+				//Copy the indices from the static mesh index buffer and use it to initialize the mesh section proxy's index buffer
 				{
 					TArray<uint32> tmp_indices;
 					LODResource.IndexBuffer.GetCopy(tmp_indices);
@@ -287,13 +313,14 @@ public:
 		{
 			///////////////////////////////////////////////////////////////
 			//// CREATING THE STRUCTURED BUFFER FOR THE DEFORM TRANSFORMS OF ALL THE SECTIONS
-			//We'll use one structured buffer for all the transforms
+			//We'll use one structured buffer for all the mesh sections of the component
 
 			//We first create a resource array to use it in the create info for initializing the structured buffer on creation
 			TResourceArray<FMatrix>* ResourceArray = new TResourceArray<FMatrix>(true);
 			FRHIResourceCreateInfo CreateInfo;
 			ResourceArray->Append(DeformTransforms);
 			CreateInfo.ResourceArray = ResourceArray;
+			//Set the debug name so we can find the resource when debugging in RenderDoc
 			CreateInfo.DebugName = TEXT("DeformMesh_TransformsSB");
 
 			DeformTransformsSB = RHICreateStructuredBuffer(sizeof(FMatrix), NumSections * sizeof(FMatrix), BUF_ShaderResource, CreateInfo);
@@ -325,7 +352,7 @@ public:
 	}
 
 
-	//Updates the structured buffer using the array of deform transforms
+	/* Update the transforms structured buffer using the array of deform transform, this will update the array on the GPU*/
 	void UpdateDeformTransformsSB_RenderThread()
 	{
 		check(IsInRenderingThread());
@@ -339,7 +366,7 @@ public:
 		}
 	}
 
-	//Update the deform transform that is being used to deform this section
+	/* Update the deform transform that is being used to deform this mesh section, this will just update this section's entry in the CPU array*/
 	void UpdateDeformTransform_RenderThread(int32 SectionIndex, FMatrix Transform)
 	{
 		check(IsInRenderingThread());
@@ -352,6 +379,7 @@ public:
 		}
 	}
 
+	/* Update the mesh section's visibility*/
 	void SetSectionVisibility_RenderThread(int32 SectionIndex, bool bNewVisibility)
 	{
 		check(IsInRenderingThread());
@@ -363,6 +391,7 @@ public:
 		}
 	}
 
+	/* Given the scene views and the visibility map, we add to the collector the relevant dynamic meshes that need to be rendered by this component*/
 	virtual void GetDynamicMeshElements(const TArray<const FSceneView*>& Views, const FSceneViewFamily& ViewFamily, uint32 VisibilityMap, FMeshElementCollector& Collector) const override
 	{
 		// Set up wireframe material (if needed)
@@ -384,33 +413,39 @@ public:
 		{
 			if (Section != nullptr && Section->bSectionVisible)
 			{
+				//Get the section's materil, or the wireframe material if we're rendering in wireframe mode
 				FMaterialRenderProxy* MaterialProxy = bWireframe ? WireframeMaterialInstance : Section->Material->GetRenderProxy();
 
 				// For each view..
 				for (int32 ViewIndex = 0; ViewIndex < Views.Num(); ViewIndex++)
 				{
+					//Check if our mesh is visible from this view
 					if (VisibilityMap & (1 << ViewIndex))
 					{
 						const FSceneView* View = Views[ViewIndex];
-						// Draw the mesh.
+						// Allocate a mesh batch and get a ref to the first element
 						FMeshBatch& Mesh = Collector.AllocateMesh();
 						FMeshBatchElement& BatchElement = Mesh.Elements[0];
+						//Fill this batch element with the mesh section's render data
 						BatchElement.IndexBuffer = &Section->IndexBuffer;
 						Mesh.bWireframe = bWireframe;
 						Mesh.VertexFactory = &Section->VertexFactory;
 						Mesh.MaterialRenderProxy = MaterialProxy;
 
+						//The LocalVertexFactory uses a uniform buffer to pass primitve data like the local to world transform for this frame and for the previous one
+						//Most of this data can be fetched using the helper function below
 						bool bHasPrecomputedVolumetricLightmap;
 						FMatrix PreviousLocalToWorld;
 						int32 SingleCaptureIndex;
 						bool bOutputVelocity;
 						GetScene().GetPrimitiveUniformShaderParameters_RenderThread(GetPrimitiveSceneInfo(), bHasPrecomputedVolumetricLightmap, PreviousLocalToWorld, SingleCaptureIndex, bOutputVelocity);
-
+						//Alloate a temporary primitive uniform buffer, fill it with the data and set it in the batch element
 						FDynamicPrimitiveUniformBuffer& DynamicPrimitiveUniformBuffer = Collector.AllocateOneFrameResource<FDynamicPrimitiveUniformBuffer>();
 						DynamicPrimitiveUniformBuffer.Set(GetLocalToWorld(), PreviousLocalToWorld, GetBounds(), GetLocalBounds(), true, bHasPrecomputedVolumetricLightmap, DrawsVelocity(), bOutputVelocity);
 						BatchElement.PrimitiveUniformBufferResource = &DynamicPrimitiveUniformBuffer.UniformBuffer;
 						BatchElement.PrimitiveIdMode = PrimID_DynamicPrimitiveShaderData;
 
+						//Additional data 
 						BatchElement.FirstIndex = 0;
 						BatchElement.NumPrimitives = Section->IndexBuffer.GetNumIndices() / 3;
 						BatchElement.MinVertexIndex = 0;
@@ -419,6 +454,8 @@ public:
 						Mesh.Type = PT_TriangleList;
 						Mesh.DepthPriorityGroup = SDPG_World;
 						Mesh.bCanApplyViewModeOverrides = false;
+
+						//Add the batch to the collector
 						Collector.AddMesh(ViewIndex, Mesh);
 					}
 				}
@@ -456,7 +493,7 @@ public:
 		return(FPrimitiveSceneProxy::GetAllocatedSize());
 	}
 
-	//Get the SRV of the transforms structured buffer
+	//Getter to the SRV of the transforms structured buffer
 	inline FShaderResourceViewRHIRef& GetDeformTransformsSRV() { return DeformTransformsSRV; }
 
 private:
@@ -469,15 +506,15 @@ private:
 	//Individual updates of each section's deform transform will just update the entry in this array
 	//Before binding the SRV, we update the content of the structured buffer with this updated array
 	TArray<FMatrix> DeformTransforms;
+
 	//The structured buffer that will contain all the deform transoform and going to be used as a shader resource
 	FStructuredBufferRHIRef DeformTransformsSB;
-	//The shader resource view of the structured buffer, this is what we bind to the vertex factory
+
+	//The shader resource view of the structured buffer, this is what we bind to the vertex factory shader
 	FShaderResourceViewRHIRef DeformTransformsSRV;
 
 	//Whether the structured buffer needs to be updated or not
 	bool bDeformTransformsDirty;
-
-	
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -488,7 +525,7 @@ private:
  * We can bind shader parameters here
  * There's two types of shader parameters: FShaderPrameter and FShaderResourcePramater
  * We can use the first to pass parameters like floats, integers, arrays
- * W can use the second to pass SRVs (Shader resource View) of certains resources that we can create
+ * W can use the second to pass shader resources bindings, for example Structured Buffer, texture, samplerstate, etc
  * Actually that's how manual fetch is implmented; for each of the Vertex Buffers of the stream components, an SRV is created
  * That SRV can bound as a shader resource parameter and you can fetch the buffers using the SV_VertexID
 */
@@ -530,8 +567,10 @@ public:
 		}
 		const FDeformMeshVertexFactory* DeformMeshVertexFactory = ((FDeformMeshVertexFactory*)VertexFactory);
 
+		/* Get the transform index from the vertex factory and pass it as the value for TransformIndex */
 		const uint32 Index = DeformMeshVertexFactory->TransformIndex;
 		ShaderBindings.Add(TransformIndex, Index);
+		/* Get tHE SRV from the scen proxy and pass is as the value for TransformsSRV*/
 		ShaderBindings.Add(TransformsSRV, DeformMeshVertexFactory->SceneProxy->GetDeformTransformsSRV());
 	};
 private:
@@ -540,18 +579,32 @@ private:
 
 };
 
+///////////////////////////////////////////////////////////////////////
+
 IMPLEMENT_TYPE_LAYOUT(FDeformMeshVertexFactoryShaderParameters);
 
 ///////////////////////////////////////////////////////////////////////
 
 IMPLEMENT_VERTEX_FACTORY_PARAMETER_TYPE(FDeformMeshVertexFactory, SF_Vertex, FDeformMeshVertexFactoryShaderParameters);
 
+///////////////////////////////////////////////////////////////////////
+
 IMPLEMENT_VERTEX_FACTORY_TYPE(FDeformMeshVertexFactory, "/CustomShaders/LocalVertexFactory.ush", true, true, true, true, true);
 
 ///////////////////////////////////////////////////////////////////////
-// The DeformMesh class methods
-///////////////////////////////////////////////////////////////////////
 
+
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////
+// The Deform Mesh Component Methods' Definitions
+///////////////////////////////////////////////////////////////////////
+/*
+ * Most of ths method below are self explanatory, they make changes to the game thread state and propagate changes to the render thread using the scene proxy
+*/
 void UDeformMeshComponent::CreateMeshSection(int32 SectionIndex, UStaticMesh* Mesh, const FTransform& Transform)
 {
 	// Ensure sections array is long enough
@@ -565,16 +618,16 @@ void UDeformMeshComponent::CreateMeshSection(int32 SectionIndex, UStaticMesh* Me
 	NewSection.Reset();
 
 	// Fill in the mesh section with the needed data
-	// I'm assuming that the StaticMesh has only one section and I'm inly using that
-	// But the StaticMeshComponent is also a MeshComponent and has multiple mesh sections
-	// If you're interested in all the Sections of the StaticMesh, you can apply the same logic for each section
+	// I'm assuming that the StaticMesh has only one section and I'm only using that
 	NewSection.StaticMesh = Mesh;
 	NewSection.DeformTransform = Transform.ToMatrixWithScale().GetTransposed();
 
+	//Update the local bound using the bounds of the static mesh that we're adding
+	//I'm not taking in consideration the deformation here, if the deformation cause the mesh to go outside its bounds
 	NewSection.StaticMesh->CalculateExtendedBounds();
 	NewSection.SectionLocalBox += NewSection.StaticMesh->GetBoundingBox();
-	NewSection.SectionLocalBox += NewSection.StaticMesh->GetBoundingBox().TransformBy(Transform);
-	//Add this sections material to the list of the component's materials, with the same index as the section
+
+	//Add this sections' material to the list of the component's materials, with the same index as the section
 	SetMaterial(SectionIndex, NewSection.StaticMesh->GetMaterial(0));
 	
 
@@ -584,7 +637,7 @@ void UDeformMeshComponent::CreateMeshSection(int32 SectionIndex, UStaticMesh* Me
 
 /// <summary>
 /// Update the Transform Matrix that we use to deform the mesh
-/// The update of the state in the game thread in simple, but for the scene proxy update, we need to enqueue a render command
+/// The update of the state in the game thread is simple, but for the scene proxy update, we need to enqueue a render command
 /// </summary>
 /// <param name="SectionIndex"> The index for the section that we want to update its DeformTransform </param>
 /// <param name="Transform"> The new Transform Matrix </param>
@@ -626,7 +679,7 @@ void UDeformMeshComponent::ClearMeshSection(int32 SectionIndex)
 
 /// <summary>
 /// This method is called after we finished updating all the section transforms that we want to update
-/// What will this do, is updating the structured buffer with the new transforms
+/// This will update the structured buffer with the new transforms
 /// </summary>
 void UDeformMeshComponent::FinishTransformsUpdate()
 {
