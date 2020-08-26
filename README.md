@@ -13,7 +13,7 @@ Here's how it looks:
 
 
 ## Modules
-### 1. PuzzleMesh 
+### 1. DeformMesh 
 Contains all the source code for the DeformMeshComponent.
 #### Classes and Structs:
 * UDeformMeshComponent
@@ -23,8 +23,10 @@ Contains all the source code for the DeformMeshComponent.
 * FDeformMeshSceneProxy
 * FDeformMeshSectionProxy
 
-### CustomUMeshComponent
+### 2. CustomUMeshComponent
 The primary game module for the project. Contains an actor that uses the DeformMeshComponent to render a mesh and deform it.
 #### Classes and Structs:
 * ADeformMeshActor
 
+## Shaders
+ * **LocalVertexFactory.ush:** A copy of the engine's LocalVertexFactory.ush but with modifications to support the deform mesh vertex factory logic.
