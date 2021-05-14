@@ -357,7 +357,7 @@ public:
 	{
 		check(IsInRenderingThread());
 		//Update the structured buffer only if it needs update
-		if(bDeformTransformsDirty)
+		if(bDeformTransformsDirty && DeformTransformsSB)
 		{
 			void* StructuredBufferData = RHILockStructuredBuffer(DeformTransformsSB, 0, DeformTransforms.Num() * sizeof(FMatrix), RLM_WriteOnly);
 			FMemory::Memcpy(StructuredBufferData, DeformTransforms.GetData(), DeformTransforms.Num() * sizeof(FMatrix));
