@@ -66,8 +66,26 @@ float4 SplineParams[10];
 #endif
 
 #if DEFORM_MESH
-StructuredBuffer<float4x4> DMTransforms : register(t0);
+Texture2D<int> DMTransforms;
 uint DMTransformIndex;
+
+float IntToFloat(int i)
+{
+	float f = i / 65535.0;
+	return f;
+}
+
+float4x4 DecodeTransform(uint index)
+{
+	float4x4 ret;
+	for(int i = 0; i < 16; ++i)
+	{
+		ret[i/4][i%4] = IntToFloat(DMTransforms.Load(int3(i, index, 0)));
+	}
+	
+	return transpose(ret);
+}
+
 #endif
 
 #ifndef MANUAL_VERTEX_FETCH
@@ -668,7 +686,7 @@ FMaterialVertexParameters GetMaterialVertexParameters(FVertexFactoryInput Input,
 //Transform from deform to world space without translation
 float4 TransformDeformNotTranslated(float3 LocalPosition)
 {
-	float4x4 DeformTransform = DMTransforms[DMTransformIndex];
+	float4x4 DeformTransform = DecodeTransform(DMTransformIndex);
 	float3 RotatedPosition = DeformTransform[0].xyz * LocalPosition.xxx + DeformTransform[1].xyz * LocalPosition.yyy + DeformTransform[2].xyz * LocalPosition.zzz;
 	return float4(RotatedPosition + ResolvedView.PreViewTranslation.xyz,1);
 }
@@ -676,7 +694,7 @@ float4 TransformDeformNotTranslated(float3 LocalPosition)
 //Transform from deform to world space
 float4 TransformDeformToTranslatedWorld(float3 LocalPosition)
 {
-	float4x4 DeformTransform = DMTransforms[DMTransformIndex];
+	float4x4 DeformTransform = DecodeTransform(DMTransformIndex);
 	float3 RotatedPosition = DeformTransform[0].xyz * LocalPosition.xxx + DeformTransform[1].xyz * LocalPosition.yyy + DeformTransform[2].xyz * LocalPosition.zzz;
 	return float4(RotatedPosition + (DeformTransform[3].xyz + ResolvedView.PreViewTranslation.xyz),1);
 }
@@ -690,10 +708,8 @@ float4 CalcWorldPosition(float4 Position, uint PrimitiveId)
 #if USE_INSTANCING
 	return TransformLocalToTranslatedWorld(mul(Position, InstanceTransform).xyz, PrimitiveId);
 #elif DEFORM_MESH
-	//The deform transform of this mesh
-	float4x4 DeformTr = DMTransforms[DMTransformIndex];
 	//The origin of the deform transform
-	float3 dfmPos = TransformDeformToTranslatedWorld(float3(0,0,0));
+	float4 dfmPos = TransformDeformToTranslatedWorld(float3(0,0,0));
 	
 	//The original world position without deformation
 	float4 originalPos = TransformLocalToTranslatedWorld(Position, PrimitiveId);

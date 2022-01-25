@@ -20,7 +20,6 @@
 #include "MeshMaterialShader.h"
 
 
-
 //Forward Declarations
 class FDeformMeshSceneProxy;
 class FDeformMeshSectionProxy;
@@ -267,7 +266,7 @@ public:
 
 				//Get the needed data from the static mesh of the mesh section
 				//We're assuming that there's only one LOD
-				auto& LODResource = SrcSection.StaticMesh->RenderData->LODResources[0];
+				auto& LODResource = SrcSection.StaticMesh->GetRenderData()->LODResources[0];
 
 				FDeformMeshVertexFactory* VertexFactory= &NewSection->VertexFactory;
 				//Initialize the vertex factory with the vertex data from the static mesh using the helper function defined above
@@ -311,25 +310,37 @@ public:
 		//Create the structured buffer only if we have at least one section
 		if(NumSections > 0)
 		{
-			///////////////////////////////////////////////////////////////
-			//// CREATING THE STRUCTURED BUFFER FOR THE DEFORM TRANSFORMS OF ALL THE SECTIONS
-			//We'll use one structured buffer for all the mesh sections of the component
+			FDeformMeshSceneProxy* self = this;
+			ENQUEUE_RENDER_COMMAND(FDeformMeshTransformsInit)(
+				[self, NumSections](FRHICommandListImmediate& RHICmdList)
+				{
+					///////////////////////////////////////////////////////////////
+					//// CREATING THE STRUCTURED BUFFER FOR THE DEFORM TRANSFORMS OF ALL THE SECTIONS
+					//We'll use one structured buffer for all the mesh sections of the component
 
-			//We first create a resource array to use it in the create info for initializing the structured buffer on creation
-			TResourceArray<FMatrix>* ResourceArray = new TResourceArray<FMatrix>(true);
-			FRHIResourceCreateInfo CreateInfo;
-			ResourceArray->Append(DeformTransforms);
-			CreateInfo.ResourceArray = ResourceArray;
-			//Set the debug name so we can find the resource when debugging in RenderDoc
-			CreateInfo.DebugName = TEXT("DeformMesh_TransformsSB");
+					//We first create a resource array to use it in the create info for initializing the structured buffer on creation
+					TResourceArray<int32_t>* ResourceArray = new TResourceArray<int32_t>(true);
+					FRHIResourceCreateInfo CreateInfo;
+					ResourceArray->AddZeroed(16 * NumSections);
+					CreateInfo.ResourceArray = ResourceArray;
+					//Set the debug name so we can find the resource when debugging in RenderDoc
+					CreateInfo.DebugName = TEXT("DeformMesh_TransformsSB");
 
-			DeformTransformsSB = RHICreateStructuredBuffer(sizeof(FMatrix), NumSections * sizeof(FMatrix), BUF_ShaderResource, CreateInfo);
-			bDeformTransformsDirty = false;
-			///////////////////////////////////////////////////////////////
-			//// CREATING AN SRV FOR THE STRUCTUED BUFFER SO WA CAN USE IT AS A SHADER RESOURCE PARAMETER AND BIND IT TO THE VERTEX FACTORY
-			DeformTransformsSRV = RHICreateShaderResourceView(DeformTransformsSB);
+					self->DeformTransformsTex = RHICreateTexture2D(
+						16, NumSections,
+						EPixelFormat::PF_R32_SINT, 1, 1, ETextureCreateFlags::TexCreate_ShaderResource | ETextureCreateFlags::TexCreate_Dynamic, CreateInfo);
 
-			///////////////////////////////////////////////////////////////
+					self->bDeformTransformsDirty = false;
+					///////////////////////////////////////////////////////////////
+					//// CREATING AN SRV FOR THE TEXTURE BUFFER SO WA CAN USE IT AS A SHADER RESOURCE PARAMETER AND BIND IT TO THE VERTEX FACTORY
+					self->DeformTransformsSRV = RHICreateShaderResourceView(self->DeformTransformsTex, 0);
+
+					///////////////////////////////////////////////////////////////
+				}
+			);
+
+			FlushRenderingCommands();
+			
 		}
 	}
 
@@ -347,21 +358,39 @@ public:
 		}
 
 		//Release the structured buffer and the SRV
-		DeformTransformsSB.SafeRelease();
+		DeformTransformsTex.SafeRelease();
 		DeformTransformsSRV.SafeRelease();
 	}
 
 
 	/* Update the transforms structured buffer using the array of deform transform, this will update the array on the GPU*/
-	void UpdateDeformTransformsSB_RenderThread()
+	void UpdateDeformTransformsTex_RenderThread(FRHICommandListImmediate& RHICmdList)
 	{
 		check(IsInRenderingThread());
 		//Update the structured buffer only if it needs update
-		if(bDeformTransformsDirty && DeformTransformsSB)
+		if(bDeformTransformsDirty && DeformTransformsTex)
 		{
-			void* StructuredBufferData = RHILockStructuredBuffer(DeformTransformsSB, 0, DeformTransforms.Num() * sizeof(FMatrix), RLM_WriteOnly);
-			FMemory::Memcpy(StructuredBufferData, DeformTransforms.GetData(), DeformTransforms.Num() * sizeof(FMatrix));
-			RHIUnlockStructuredBuffer(DeformTransformsSB);
+			uint32_t stride = 0;
+			void* LockedTexData = RHILockTexture2D(DeformTransformsTex, 0, EResourceLockMode::RLM_WriteOnly, stride, false);
+
+			uint16_t NumSections = Sections.Num();
+			int32_t* pMatrices = (int32_t*)LockedTexData;
+
+			for(uint16_t j = 0; j < NumSections; ++j)
+			{
+				for(int i = 0; i < 16; ++i)
+				{
+					// encode integer into texels, later it will be decoded in the shader
+					float f = DeformTransforms[j].M[i/4][i%4];
+					int32_t d = (int32_t)(f * 65535.0f);
+					pMatrices[i] = d;
+				}
+
+				pMatrices += stride / 4;
+			}
+
+			RHIUnlockTexture2D(DeformTransformsTex, 0, false);
+			
 			bDeformTransformsDirty = false;
 		}
 	}
@@ -507,12 +536,12 @@ private:
 	//Before binding the SRV, we update the content of the structured buffer with this updated array
 	TArray<FMatrix> DeformTransforms;
 
-	//The structured buffer that will contain all the deform transoform and going to be used as a shader resource
-	FStructuredBufferRHIRef DeformTransformsSB;
+	//The texture buffer that will contain all the deform transoform and going to be used as a shader resource
+	FTexture2DRHIRef DeformTransformsTex;
 
 	//The shader resource view of the structured buffer, this is what we bind to the vertex factory shader
 	FShaderResourceViewRHIRef DeformTransformsSRV;
-
+	
 	//Whether the structured buffer needs to be updated or not
 	bool bDeformTransformsDirty;
 };
@@ -538,8 +567,8 @@ public:
 	{
 		/* We bind our shader paramters to the paramtermap that will be used with it, the SPF_Optional flags tells the compiler that this paramter is optional*/
 		/* Otherwise, the shader compiler will complain when this parameter is not present in the shader file*/
-		TransformIndex.Bind(ParameterMap, TEXT("DMTransformIndex"), SPF_Optional);
-		TransformsSRV.Bind(ParameterMap, TEXT("DMTransforms"), SPF_Optional);
+		TransformIndex.Bind(ParameterMap, TEXT("DMTransformIndex"), SPF_Mandatory);
+		TransformsSRV.Bind(ParameterMap, TEXT("DMTransforms"), SPF_Mandatory);
 	};
 
 	void GetElementShaderBindings(
@@ -690,7 +719,7 @@ void UDeformMeshComponent::FinishTransformsUpdate()
 		ENQUEUE_RENDER_COMMAND(FDeformMeshAllTransformsSBUpdate)(
 			[DeformMeshSceneProxy](FRHICommandListImmediate& RHICmdList)
 			{
-				DeformMeshSceneProxy->UpdateDeformTransformsSB_RenderThread();
+				DeformMeshSceneProxy->UpdateDeformTransformsTex_RenderThread(RHICmdList);
 			});
 	}
 }

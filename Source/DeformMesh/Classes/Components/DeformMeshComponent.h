@@ -39,7 +39,9 @@ public:
 		bool bSectionVisible;
 
 	FDeformMeshSection()
-		: SectionLocalBox(ForceInit)
+		: StaticMesh(nullptr),
+		DeformTransform(FMatrix::Identity),
+		SectionLocalBox(ForceInit)
 		, bSectionVisible(true)
 	{}
 
